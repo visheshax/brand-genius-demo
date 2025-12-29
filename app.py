@@ -3,34 +3,30 @@ from groq import Groq
 import requests
 import io
 from PIL import Image
-import PyPDF2  # Needs: pip install PyPDF2
+import PyPDF2
 import time
 
 # --- Configuration ---
 st.set_page_config(page_title="BrandGenius Enterprise", layout="wide")
 
-# --- 🔑 API KEYS (Cloud Compatible) ---
-# This checks if the keys are in Streamlit Secrets (Cloud) or defaults to None (Local)
+# --- 🔑 API KEYS (Cloud & Local Compatible) ---
 
-import streamlit as st
-
-# 1. GROQ KEY
+# 1. Get Groq Key
 if "GROQ_API_KEY" in st.secrets:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
-else:
-    # If running locally without secrets.toml, you can paste your key here TEMPORARILY
-    # But for GitHub, keep this blank or use a placeholder
-    GROQ_API_KEY = "PASTE_YOUR_GROQ_KEY_HERE_FOR_LOCAL_TESTING_ONLY"
 
-# 2. HUGGING FACE KEY
+# 2. Get Hugging Face Key
 if "HF_API_TOKEN" in st.secrets:
     HF_API_TOKEN = st.secrets["HF_API_TOKEN"]
-else:
-    HF_API_TOKEN = "PASTE_YOUR_HF_KEY_HERE_FOR_LOCAL_TESTING_ONLY"
 
-# Stop the app if keys are missing in Cloud
-if not GROQ_API_KEY.startswith("gsk_") or not HF_API_TOKEN.startswith("hf_"):
-    st.warning("⚠️ API Keys not found! Please set them in Streamlit Cloud Secrets.")
+# --- 🛠️ CLIENT SETUP (The Missing Part) ---
+try:
+    client = Groq(api_key=GROQ_API_KEY)
+except Exception as e:
+    st.error(f"Groq Client Error: {e}")
+
+HF_API_URL = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0"
+hf_headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
 
 # --- Helper Functions ---
 
@@ -54,7 +50,7 @@ def generate_brand_aware_copy(prompt, context_text):
     You must strictly adhere to the tone, voice, and key findings in that text when writing the copy.
     
     --- BRAND GUIDELINES / RESEARCH ---
-    {context_text[:10000]}  # Limit context to avoid token limits
+    {context_text[:10000]} 
     -----------------------------------
     
     Task: Write creative marketing copy based on the user's request.
@@ -78,7 +74,6 @@ def generate_image_huggingface(prompt, style_context=""):
     """
     Generates an image, appending the 'Brand Style' keywords to the prompt.
     """
-    # We enhance the prompt with the style context automatically
     enhanced_prompt = f"{prompt}, {style_context}, 4k, professional commercial photography, award winning"
     
     payload = {"inputs": enhanced_prompt}
@@ -128,8 +123,6 @@ with col_left:
     visual_style_desc = ""
     if uploaded_img:
         st.image(uploaded_img, caption="Style Reference", use_container_width=True)
-        # In a real enterprise app, we would use a Vision Model to analyze this. 
-        # For now, we ask the user to tag it to ensure the AI gets it right.
         visual_style_desc = st.text_input("Describe this style (e.g., 'Minimalist, Matte Black, Neon'):", 
                                           value="Minimalist, High Contrast, Luxury")
 
@@ -151,7 +144,6 @@ with col_right:
             st.warning("Please enter a campaign brief.")
         else:
             with st.spinner("Analyzing brand guidelines & writing copy..."):
-                # If no PDF is uploaded, we just use a generic instruction
                 final_context = brand_context if brand_context else "No specific guidelines provided. Use general professional marketing tone."
                 
                 res = generate_brand_aware_copy(user_prompt, final_context)
@@ -163,15 +155,12 @@ with col_right:
             st.warning("Please enter a campaign brief.")
         else:
             with st.spinner("Rendering visuals..."):
-                # Combine User Prompt + Visual Style from the uploaded image description
                 image_bytes = generate_image_huggingface(user_prompt, visual_style_desc)
                 
                 if image_bytes:
                     st.markdown("### 🎨 Campaign Visual")
                     generated_img = Image.open(io.BytesIO(image_bytes))
                     st.image(generated_img, use_container_width=True)
-                    
-                    # Add a download button for the investor "wow" factor
                     st.download_button("Download Asset", data=image_bytes, file_name="brand_asset.png", mime="image/png")
                 else:
                     st.error("Generation failed. The model might be busy.")
