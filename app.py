@@ -50,34 +50,65 @@ def extract_text_from_pdf(uploaded_file):
     except Exception as e:
         return f"Error reading PDF: {e}"
 
-def generate_brand_aware_copy(prompt, context_text):
-    system_instruction = f"""
-    You are a Senior Brand Strategist. 
-    Strictly adhere to the tone and guidelines below.
+# --- REPLACEMENT FUNCTIONS (Copy & Paste these over your old ones) ---
+
+def generate_brand_aware_copy(simple_prompt, context_text):
+    """
+    UPGRADE: Uses a 'Meta-Prompt' to interpret simple user requests 
+    and expand them into professional marketing prompts.
+    """
     
+    # 1. The 'Meta-Prompt' (The hidden expert)
+    system_instruction = f"""
+    You are a Senior Brand Strategist.
+    
+    STEP 1: ANALYZE THE CONTEXT
+    Read the Brand Guidelines below carefully.
     --- BRAND GUIDELINES ---
-    {context_text[:10000]} 
+    {context_text[:10000]}
     ------------------------
     
-    Task: Write creative marketing copy.
+    STEP 2: ENHANCE THE USER'S REQUEST
+    The user will give you a simple/rough instruction (e.g., "write a post").
+    You must interpret this as a request for a high-performing, professional marketing asset.
+    - If they say "post", write a structured social media update with hashtags.
+    - If they say "email", write a subject line + body with a clear CTA.
+    - If they say "ad", write a punchy headline + body copy.
+    
+    STEP 3: EXECUTE
+    Write the final copy. Do not explain your thinking. Just write the asset.
     """
+    
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_instruction},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": simple_prompt} # We pass the simple prompt; Llama expands it.
             ],
-            temperature=0.6,
+            temperature=0.7, # Slightly higher creativity
             max_tokens=1500,
         )
         return completion.choices[0].message.content
     except Exception as e:
         return f"Error: {e}"
 
-def generate_image_huggingface(prompt, style_context=""):
-    enhanced_prompt = f"{prompt}, {style_context}, 4k, professional commercial photography, award winning"
+def generate_image_huggingface(simple_prompt, style_context=""):
+    """
+    UPGRADE: Automatically appends 'Magic Words' to ensure high quality
+    even if the user prompt is basic.
+    """
+    
+    # 1. Define 'Magic Words' for quality assurance
+    quality_modifiers = "award winning, professional commercial photography, 8k resolution, highly detailed, dramatic lighting"
+    
+    # 2. Construct the smart prompt
+    # If the user typed "coffee cup", this becomes:
+    # "coffee cup, Minimalist Style, award winning, professional commercial photography..."
+    enhanced_prompt = f"{simple_prompt}, {style_context}, {quality_modifiers}"
+    
     payload = {"inputs": enhanced_prompt}
+    
     for attempt in range(3):
         try:
             response = requests.post(HF_API_URL, headers=hf_headers, json=payload)
@@ -91,7 +122,6 @@ def generate_image_huggingface(prompt, style_context=""):
         except:
             return None
     return None
-
 # --- Main Streamlit UI ---
 
 st.title("💎 BrandGenius Enterprise")
