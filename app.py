@@ -10,11 +10,13 @@ from datetime import datetime
 # --- Configuration ---
 st.set_page_config(page_title="BrandGenius Enterprise", layout="wide")
 
-# --- 🧠 SESSION STATE ---
+# --- 🧠 SESSION STATE (Memory) ---
+# Initialize history list if it doesn't exist
 if "history" not in st.session_state:
     st.session_state.history = []
 
 # --- 🔑 API KEYS ---
+# Checks for keys in Secrets (Cloud) or stops if missing
 if "GROQ_API_KEY" in st.secrets:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 else:
@@ -36,7 +38,7 @@ except Exception as e:
 HF_API_URL = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0"
 hf_headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
 
-# --- Helper Functions ---
+# --- HELPER FUNCTIONS ---
 
 def extract_text_from_pdf(uploaded_file):
     try:
@@ -48,54 +50,38 @@ def extract_text_from_pdf(uploaded_file):
     except Exception as e:
         return f"Error reading PDF: {e}"
 
-def analyze_image_style(image_bytes):
-    """
-    Uses Vision AI (BLIP) to 'see' the style of the uploaded image.
-    """
-    API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large"
-    headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
-    
-    try:
-        response = requests.post(API_URL, headers=headers, data=image_bytes)
-        if response.status_code == 200:
-            description = response.json()[0]['generated_text']
-            return f"visual style of {description}, professional lighting, color matched"
-        else:
-            return "high quality, professional studio lighting"
-    except:
-        return "high quality, professional studio lighting"
-
-def generate_brand_aware_copy(simple_prompt, context_text):
-    """Meta-Prompting for Copy"""
+def generate_brand_aware_copy(prompt, context_text):
+    """Generates copy using Llama 3 with context."""
     system_instruction = f"""
-    You are a Senior Brand Strategist.
+    You are a Senior Brand Strategist. 
+    Strictly adhere to the tone and guidelines below.
     
-    STEP 1: ANALYZE CONTEXT
     --- BRAND GUIDELINES ---
-    {context_text[:10000]}
+    {context_text[:10000]} 
     ------------------------
     
-    STEP 2: ACTION
-    Interpret the user's request '{simple_prompt}' as a professional marketing task.
-    Write the final copy directly. No explanations.
+    Task: Write creative marketing copy.
     """
     try:
         completion = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_instruction},
-                {"role": "user", "content": simple_prompt}
+                {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
+            temperature=0.6,
             max_tokens=1500,
         )
         return completion.choices[0].message.content
     except Exception as e:
         return f"Error: {e}"
 
-def generate_image_huggingface(simple_prompt, style_context=""):
-    """Smart Image Generation"""
-    enhanced_prompt = f"{simple_prompt}, {style_context}, award winning, 8k, masterpiece"
+def generate_image_huggingface(prompt, style_context=""):
+    """
+    Standard Stable Diffusion XL Generation.
+    Reverted to simple prompt concatenation for better control.
+    """
+    enhanced_prompt = f"{prompt}, {style_context}"
     payload = {"inputs": enhanced_prompt}
     
     for attempt in range(3):
@@ -112,20 +98,24 @@ def generate_image_huggingface(simple_prompt, style_context=""):
             return None
     return None
 
-# --- Main Streamlit UI ---
+# --- MAIN PAGE LAYOUT ---
 
 st.title("💎 BrandGenius Enterprise")
 st.caption("Context-Aware Generative AI: Strategy + Creative")
 
+# 1. CREATE TABS
+# This creates the clickable headers at the top of the page
 tab1, tab2 = st.tabs(["🛠️ Workstation", "Cc: Campaign History"])
 
+# 2. FILL TAB 1 (The Workstation)
 with tab1:
+    # Everything indented here goes into Tab 1
     col_left, col_right = st.columns([1, 2])
 
     with col_left:
         st.header("1. Brand Assets")
         
-        # PDF
+        # PDF Upload
         st.subheader("📄 Strategy & Guidelines")
         uploaded_pdf = st.file_uploader("Upload Brand Guidelines (PDF)", type="pdf")
         brand_context = ""
@@ -136,22 +126,14 @@ with tab1:
 
         st.divider()
 
-        # Image Upload & Analysis
+        # Image Upload (Reference)
         st.subheader("🖼️ Visual Style Reference")
         uploaded_img = st.file_uploader("Upload Moodboard", type=["jpg", "png"])
-        
-        visual_style_desc = st.text_input("Detected Style:", value="Minimalist, High Contrast", key="style_input")
-
         if uploaded_img:
             st.image(uploaded_img, caption="Reference Image", use_container_width=True)
             
-            if st.button("✨ Analyze Style with Vision AI"):
-                with st.spinner("Vision Model is analyzing style..."):
-                    bytes_data = uploaded_img.getvalue()
-                    detected_style = analyze_image_style(bytes_data)
-                    st.info(f"Detected: {detected_style}")
-                    # Update the variable to be used in generation
-                    visual_style_desc = detected_style 
+        # Manual Style Input (Simple & Reliable)
+        visual_style_desc = st.text_input("Describe style:", value="Minimalist, High Contrast, Luxury, 4k")
 
     with col_right:
         st.header("2. Creation Studio")
@@ -163,16 +145,19 @@ with tab1:
 
         st.divider()
 
+        # Logic for TEXT Generation
         if do_text:
             if not user_prompt:
                 st.warning("Please enter a brief.")
             else:
                 with st.spinner("Writing copy..."):
-                    final_context = brand_context if brand_context else "Professional tone."
+                    final_context = brand_context if brand_context else "General professional tone."
                     res = generate_brand_aware_copy(user_prompt, final_context)
+                    
                     st.markdown("### 📝 Strategic Copy")
                     st.markdown(res)
                     
+                    # Save to History
                     st.session_state.history.append({
                         "type": "text", 
                         "prompt": user_prompt, 
@@ -180,12 +165,12 @@ with tab1:
                         "time": datetime.now().strftime("%H:%M")
                     })
 
+        # Logic for IMAGE Generation
         if do_img:
             if not user_prompt:
                 st.warning("Please enter a brief.")
             else:
-                with st.spinner(f"Rendering with style: {visual_style_desc}..."):
-                    # Pass the detected style variable here
+                with st.spinner("Rendering visuals..."):
                     image_bytes = generate_image_huggingface(user_prompt, visual_style_desc)
                     
                     if image_bytes:
@@ -193,19 +178,25 @@ with tab1:
                         generated_img = Image.open(io.BytesIO(image_bytes))
                         st.image(generated_img, use_container_width=True)
                         
+                        # Save to History
                         st.session_state.history.append({
                             "type": "image", 
                             "prompt": user_prompt, 
-                            "content": image_bytes, 
+                            "content": image_bytes,
                             "time": datetime.now().strftime("%H:%M")
                         })
                     else:
                         st.error("Generation failed. Try again.")
 
+# 3. FILL TAB 2 (The History)
 with tab2:
+    # Everything indented here goes into Tab 2
     st.header("🗄️ Session History")
+    
     if len(st.session_state.history) == 0:
-        st.info("No assets generated yet.")
+        st.info("No assets generated yet. Go to the Workstation to start creating.")
+    
+    # Loop through history in reverse (newest first)
     for i, item in enumerate(reversed(st.session_state.history)):
         with st.expander(f"{item['time']} - {item['type'].upper()}: {item['prompt'][:50]}..."):
             if item['type'] == 'text':
@@ -213,3 +204,4 @@ with tab2:
             elif item['type'] == 'image':
                 img = Image.open(io.BytesIO(item['content']))
                 st.image(img, use_container_width=True)
+                st.download_button("Download", data=item['content'], file_name=f"history_{i}.png", mime="image/png", key=f"dl_{i}")
