@@ -52,7 +52,6 @@ def analyze_image_style(image_bytes):
     """
     Uses Vision AI (BLIP) to 'see' the style of the uploaded image.
     """
-    # We use a free, fast image captioning model on Hugging Face
     API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large"
     headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
     
@@ -60,7 +59,6 @@ def analyze_image_style(image_bytes):
         response = requests.post(API_URL, headers=headers, data=image_bytes)
         if response.status_code == 200:
             description = response.json()[0]['generated_text']
-            # We wrap the description to make it a style modifier
             return f"visual style of {description}, professional lighting, color matched"
         else:
             return "high quality, professional studio lighting"
@@ -97,9 +95,7 @@ def generate_brand_aware_copy(simple_prompt, context_text):
 
 def generate_image_huggingface(simple_prompt, style_context=""):
     """Smart Image Generation"""
-    # Combine User Prompt + The AI-Detected Style
     enhanced_prompt = f"{simple_prompt}, {style_context}, award winning, 8k, masterpiece"
-    
     payload = {"inputs": enhanced_prompt}
     
     for attempt in range(3):
@@ -144,20 +140,17 @@ with tab1:
         st.subheader("🖼️ Visual Style Reference")
         uploaded_img = st.file_uploader("Upload Moodboard", type=["jpg", "png"])
         
-        # Variable to hold the style text
         visual_style_desc = st.text_input("Detected Style:", value="Minimalist, High Contrast", key="style_input")
 
         if uploaded_img:
             st.image(uploaded_img, caption="Reference Image", use_container_width=True)
             
-            # Logic to analyze image only once per upload
-            # We use a button to trigger analysis to save API calls
             if st.button("✨ Analyze Style with Vision AI"):
                 with st.spinner("Vision Model is analyzing style..."):
                     bytes_data = uploaded_img.getvalue()
                     detected_style = analyze_image_style(bytes_data)
-                    # Use session state to force update the text input
                     st.info(f"Detected: {detected_style}")
+                    # Update the variable to be used in generation
                     visual_style_desc = detected_style 
 
     with col_right:
@@ -179,4 +172,44 @@ with tab1:
                     res = generate_brand_aware_copy(user_prompt, final_context)
                     st.markdown("### 📝 Strategic Copy")
                     st.markdown(res)
-                    st.session_state.history.append({"type": "text", "prompt": user_prompt, "content": res
+                    
+                    st.session_state.history.append({
+                        "type": "text", 
+                        "prompt": user_prompt, 
+                        "content": res, 
+                        "time": datetime.now().strftime("%H:%M")
+                    })
+
+        if do_img:
+            if not user_prompt:
+                st.warning("Please enter a brief.")
+            else:
+                with st.spinner(f"Rendering with style: {visual_style_desc}..."):
+                    # Pass the detected style variable here
+                    image_bytes = generate_image_huggingface(user_prompt, visual_style_desc)
+                    
+                    if image_bytes:
+                        st.markdown("### 🎨 Campaign Visual")
+                        generated_img = Image.open(io.BytesIO(image_bytes))
+                        st.image(generated_img, use_container_width=True)
+                        
+                        st.session_state.history.append({
+                            "type": "image", 
+                            "prompt": user_prompt, 
+                            "content": image_bytes, 
+                            "time": datetime.now().strftime("%H:%M")
+                        })
+                    else:
+                        st.error("Generation failed. Try again.")
+
+with tab2:
+    st.header("🗄️ Session History")
+    if len(st.session_state.history) == 0:
+        st.info("No assets generated yet.")
+    for i, item in enumerate(reversed(st.session_state.history)):
+        with st.expander(f"{item['time']} - {item['type'].upper()}: {item['prompt'][:50]}..."):
+            if item['type'] == 'text':
+                st.markdown(item['content'])
+            elif item['type'] == 'image':
+                img = Image.open(io.BytesIO(item['content']))
+                st.image(img, use_container_width=True)
